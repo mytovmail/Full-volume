@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Download, Mail, Youtube, Music, FolderOpen, ListVideo, ChevronDown, ChevronUp } from 'lucide-react';
+import { Play, Mail, Youtube, Music, FolderOpen, ListVideo, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
 
 // רכיב כרטיסיית וידאו שמאפשר פתיחה וסגירה של התיאור
 const VideoCard = ({ video }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // ננקה מעט את הטקסט כדי שיוצג יפה יותר, למרות שהוא מגיע כ-HTML
   return (
     <div className="bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-md hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-2 flex flex-col h-full">
       <a href={video.link} target="_blank" rel="noreferrer" className="block relative aspect-video overflow-hidden group">
@@ -36,7 +35,7 @@ const VideoCard = ({ video }) => {
             <div 
               className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-5 rounded-2xl border border-slate-200 description-content overflow-y-auto max-h-[400px] custom-scrollbar text-right"
               dir="rtl"
-              dangerouslySetInnerHTML={{ __html: video.description }}
+              dangerouslySetInnerHTML={{ __html: video.description || 'לא צורף תיאור לסרטון זה.' }}
             />
           </div>
         </div>
@@ -47,34 +46,45 @@ const VideoCard = ({ video }) => {
 
 export default function App() {
   const [latestVideos, setLatestVideos] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
     // הוספת סמל האתר (Favicon)
-    const link = document.createElement('link');
-    link.rel = 'icon';
-    link.type = 'image/png';
-    link.href = 'logo.png';
-    document.head.appendChild(link);
+    if (!document.querySelector('link[rel="icon"]')) {
+      const link = document.createElement('link');
+      link.rel = 'icon';
+      link.type = 'image/png';
+      link.href = './logo.png';
+      document.head.appendChild(link);
+    }
 
-    // מזהה הערוץ - מושך עד 15 סרטונים אחרונים
+    // משיכת הסרטונים מהערוץ
     const channelId = 'UC0Ww0C4XHAT8FsQuevAt1fw'; 
     const rssUrl = encodeURIComponent(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`);
     
     fetch(`https://api.rss2json.com/v1/api.json?rss_url=${rssUrl}`)
       .then(res => res.json())
       .then(data => {
-        if (data && data.items) {
+        if (data && data.items && data.items.length > 0) {
           setLatestVideos(data.items.slice(0, 15));
+        } else {
+          setHasError(true);
         }
+        setIsLoading(false);
       })
-      .catch(err => console.error('Error fetching videos:', err));
+      .catch(err => {
+        console.error('Error fetching videos:', err);
+        setHasError(true);
+        setIsLoading(false);
+      });
   }, []);
 
   return (
     <div dir="rtl" className="min-h-screen bg-slate-50 font-sans text-slate-900 overflow-x-hidden">
       
-      {/* הגדרות סגנון ואנימציות גלובליות */}
-      <style>{`
+      {/* הגדרות סגנון ואנימציות גלובליות בצורה בטוחה */}
+      <style dangerouslySetInnerHTML={{ __html: `
         @keyframes fadeInUp {
           from { opacity: 0; transform: translateY(30px); }
           to { opacity: 1; transform: translateY(0); }
@@ -92,11 +102,10 @@ export default function App() {
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
-        /* עיצוב הקישורים בתוך התיאור של יוטיוב */
         .description-content a { color: #dc2626; text-decoration: none; font-weight: 500; }
         .description-content a:hover { text-decoration: underline; }
         .description-content br { display: block; content: ""; margin-top: 4px; }
-      `}</style>
+      `}} />
 
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-50 border-b border-slate-100 transition-all">
@@ -104,12 +113,13 @@ export default function App() {
           <div className="flex items-center gap-4 hover:scale-105 transition-transform duration-300 cursor-pointer">
             <div className="w-14 h-14 flex items-center justify-center overflow-hidden bg-white rounded-full shadow-md border border-slate-50 p-1">
               <img 
-                src="logo.png" 
+                src="./logo.png" 
                 alt="לוגו פול ווליום" 
                 className="w-full h-full object-contain" 
                 onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }} 
               />
-              <Music size={24} className="text-red-600 hidden" />
+              {/* סמל חלופי שיוצג במידה והתמונה לא נטענת */}
+              <Music size={28} className="text-red-600 hidden" style={{ display: 'none' }} />
             </div>
             <div>
               <h1 className="text-2xl font-extrabold bg-gradient-to-l from-slate-900 to-slate-700 bg-clip-text text-transparent tracking-tight">פול ווליום</h1>
@@ -127,14 +137,14 @@ export default function App() {
 
       {/* Hero Section - About */}
       <section id="about" className="py-20 relative overflow-hidden bg-white">
-        {/* רקע דקורטיבי */}
         <div className="absolute top-0 right-0 -mr-20 -mt-20 w-72 h-72 rounded-full bg-red-50 blur-3xl opacity-60"></div>
         <div className="absolute bottom-0 left-0 -ml-20 -mb-20 w-80 h-80 rounded-full bg-blue-50 blur-3xl opacity-60"></div>
 
         <div className="max-w-5xl mx-auto px-4 text-center relative z-10">
           <div className="animate-fade-in-up">
-            <div className="w-40 h-40 mx-auto mb-8 bg-white rounded-full p-2 shadow-2xl border-4 border-slate-50 transform hover:rotate-3 transition-transform duration-500">
-              <img src="logo.png" alt="פול ווליום" className="w-full h-full object-contain" onError={(e) => { e.target.style.display='none'; }} />
+            <div className="w-40 h-40 mx-auto mb-8 bg-white rounded-full p-2 shadow-2xl border-4 border-slate-50 transform hover:rotate-3 transition-transform duration-500 flex items-center justify-center">
+              <img src="./logo.png" alt="פול ווליום" className="w-full h-full object-contain" onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }} />
+              <Music size={64} className="text-slate-300 hidden" style={{ display: 'none' }} />
             </div>
             <h2 className="text-5xl font-black text-slate-900 mb-6 tracking-tight">
               פול ווליום - נותנים לקצב לדבר, וללב להרגיש
@@ -201,16 +211,22 @@ export default function App() {
             </div>
           </div>
           
-          {latestVideos.length > 0 ? (
+          {isLoading ? (
+            <div className="text-center py-20 bg-white rounded-3xl border border-slate-100 shadow-sm animate-pulse">
+              <Youtube className="mx-auto text-slate-300 mb-4" size={48} />
+              <p className="text-slate-500 font-medium text-lg">טוען סרטונים מערוץ היוטיוב...</p>
+            </div>
+          ) : hasError ? (
+            <div className="text-center py-20 bg-white rounded-3xl border border-red-100 shadow-sm">
+              <AlertCircle className="mx-auto text-red-400 mb-4" size={48} />
+              <p className="text-slate-700 font-medium text-lg">לא הצלחנו לטעון את הסרטונים כרגע.</p>
+              <a href="https://www.youtube.com/@UC0Ww0C4XHAT8FsQuevAt1fw" target="_blank" rel="noreferrer" className="text-red-600 hover:underline mt-2 inline-block font-bold">מעבר ישיר לערוץ היוטיוב</a>
+            </div>
+          ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 animate-fade-in-up delay-300">
               {latestVideos.map((video, idx) => (
                 <VideoCard key={idx} video={video} />
               ))}
-            </div>
-          ) : (
-            <div className="text-center py-20 bg-white rounded-3xl border border-slate-100 shadow-sm animate-pulse">
-              <Youtube className="mx-auto text-slate-300 mb-4" size={48} />
-              <p className="text-slate-500 font-medium text-lg">טוען סרטונים מערוץ היוטיוב...</p>
             </div>
           )}
         </div>
@@ -238,12 +254,11 @@ export default function App() {
           </div>
           
           <div className="bg-white/5 backdrop-blur-sm rounded-[2.5rem] overflow-hidden p-2 border border-white/10 shadow-2xl">
-            {/* Embedded Google Drive Folder */}
             <iframe 
               src="https://drive.google.com/embeddedfolderview?id=12eZNreOj_lxtMZMy1F6NAP5ZmzbiXOfK#grid" 
               width="100%" 
               height="700" 
-              frameBorder="0"
+              style={{border: 0}}
               title="Drive Folder"
               className="rounded-[2rem] bg-white"
             ></iframe>
@@ -253,7 +268,6 @@ export default function App() {
 
       {/* Newsletter Subscribe */}
       <section id="subscribe" className="py-24 bg-gradient-to-br from-red-600 to-red-800 relative overflow-hidden">
-        {/* אלמנטים עיצוביים ברקע */}
         <div className="absolute top-0 right-0 w-64 h-64 bg-white opacity-5 rounded-full blur-2xl transform translate-x-1/2 -translate-y-1/2"></div>
         <div className="absolute bottom-0 left-0 w-80 h-80 bg-black opacity-10 rounded-full blur-3xl transform -translate-x-1/2 translate-y-1/2"></div>
         
@@ -267,9 +281,7 @@ export default function App() {
           </p>
 
           <div className="bg-white rounded-[2.5rem] p-8 md:p-12 shadow-2xl border-4 border-red-400/30 transform transition-all duration-500 hover:shadow-red-900/50">
-            {/* TODO FOR GITHUB PAGES:
-              Replace the div below with your real Google Form Iframe!
-            */}
+            {/* טופס ההרשמה של גוגל פורמס */}
             <div className="border-2 border-dashed border-slate-200 rounded-3xl p-10 bg-slate-50 flex flex-col items-center justify-center min-h-[350px]">
               <div className="bg-blue-100 text-blue-700 p-5 rounded-2xl mb-4 font-bold max-w-md text-lg flex items-center gap-3 shadow-sm">
                 <ListVideo /> כאן יופיע טופס ההרשמה של גוגל!
@@ -296,8 +308,9 @@ export default function App() {
       {/* Footer */}
       <footer className="bg-slate-950 text-slate-400 py-12 text-center border-t border-slate-900">
         <div className="max-w-4xl mx-auto px-4">
-          <div className="w-16 h-16 mx-auto mb-6 opacity-50 grayscale hover:grayscale-0 transition-all duration-300">
-            <img src="logo.png" alt="פול ווליום" className="w-full h-full object-contain" onError={(e) => { e.target.style.display='none'; }} />
+          <div className="w-16 h-16 mx-auto mb-6 opacity-50 grayscale hover:grayscale-0 transition-all duration-300 flex items-center justify-center">
+            <img src="./logo.png" alt="פול ווליום" className="w-full h-full object-contain" onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }} />
+            <Music size={32} className="text-slate-600 hidden" style={{ display: 'none' }} />
           </div>
           <p className="mb-6 font-medium">© 2026 פול ווליום. נותנים לקצב לדבר. כל הזכויות שמורות.</p>
           <div className="flex flex-wrap justify-center gap-6 text-sm font-semibold">
