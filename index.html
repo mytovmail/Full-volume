@@ -70,23 +70,29 @@
             );
         };
 
-        const getYoutubeId = (url) => {
-            const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-            const match = url.match(regExp);
-            return (match && match[2].length === 11) ? match[2] : null;
-        };
-
         // === רכיב כרטיסיית וידאו ===
         const VideoCard = ({ video }) => {
             const [isExpanded, setIsExpanded] = useState(false);
             const [isPlaying, setIsPlaying] = useState(false);
-            const videoId = getYoutubeId(video.link);
+
+            // פונקציה שהופכת טקסט לקישורים לחיצים ושומרת על ירידות שורה
+            const renderDescription = (text) => {
+                if (!text) return 'לא נמצא תיאור לסרטון זה.';
+                const urlRegex = /(https?:\/\/[^\s]+)/g;
+                const parts = text.split(urlRegex);
+                return parts.map((part, i) => {
+                    if (part.match(urlRegex)) {
+                        return <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-bold" dir="ltr" style={{display: 'inline-block'}}>{part}</a>;
+                    }
+                    return part;
+                });
+            };
 
             return (
                 <div className="bg-white rounded-3xl overflow-hidden border border-slate-100 shadow-md hover:shadow-2xl transition-all duration-500 flex flex-col h-full group hover:-translate-y-2">
                     <div className="block relative aspect-video overflow-hidden">
-                        {isPlaying && videoId ? (
-                            <iframe className="absolute inset-0 w-full h-full" src={`https://www.youtube.com/embed/${videoId}?autoplay=1`} frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>
+                        {isPlaying && video.videoId ? (
+                            <iframe className="absolute inset-0 w-full h-full" src={`https://www.youtube.com/embed/${video.videoId}?autoplay=1`} frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>
                         ) : (
                             <div className="w-full h-full cursor-pointer relative" onClick={() => setIsPlaying(true)}>
                                 <img src={video.thumbnail} alt={video.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-in-out" />
@@ -107,10 +113,9 @@
                                 {isExpanded ? 'הסתר תיאור' : 'הצג תיאור מפורט'}
                             </button>
                             <div className={`transition-all duration-500 overflow-hidden ${isExpanded ? 'max-h-[800px] opacity-100 mt-4' : 'max-h-0 opacity-0'}`}>
-                                <div 
-                                    className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-4 rounded-2xl border border-slate-200 whitespace-pre-wrap max-h-60 overflow-y-auto custom-scrollbar text-right description-content"
-                                    dangerouslySetInnerHTML={{ __html: video.content || video.description || 'לא נמצא תיאור לסרטון זה.' }}
-                                />
+                                <div className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-4 rounded-2xl border border-slate-200 whitespace-pre-wrap max-h-60 overflow-y-auto custom-scrollbar text-right description-content">
+                                    {renderDescription(video.description)}
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -195,15 +200,15 @@
                                 <h4 className="font-black text-xl text-slate-800">סייר הקבצים</h4>
                             </div>
                             
-                            <div className="relative w-full md:w-64">
+                            <div className="relative w-full md:w-64 group">
                                 <input 
                                     type="text" 
                                     placeholder="חיפוש בתיקייה..." 
-                                    className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 rounded-xl py-2 pr-10 pl-4 focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm transition-all"
+                                    className="w-full bg-white border border-slate-300 text-slate-900 placeholder-slate-400 rounded-xl py-2 pr-10 pl-4 focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm transition-all group-hover:border-blue-300"
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                 />
-                                <SearchIcon className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <SearchIcon className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 group-hover:text-blue-500 transition-colors" />
                             </div>
                         </div>
 
@@ -274,23 +279,50 @@
         const App = () => {
             const [latestVideos, setLatestVideos] = useState([]);
             const [isLoading, setIsLoading] = useState(true);
+            const [currentView, setCurrentView] = useState('home'); // ניהול מצב הדף: 'home' או 'subscribe'
 
             useEffect(() => {
                 const channelId = 'UC0Ww0C4XHAT8FsQuevAt1fw'; 
-                const rssUrl = encodeURIComponent(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`);
-                fetch(`https://api.rss2json.com/v1/api.json?rss_url=${rssUrl}`)
+                // כדי למשוך את ההעלאות של הערוץ במלואן, ממירים את הקידומת UC ל-UU
+                const uploadsPlaylistId = channelId.replace('UC', 'UU');
+                
+                if (!GOOGLE_DRIVE_API_KEY) {
+                    setIsLoading(false);
+                    return;
+                }
+
+                // משיכה ישירה, רשמית ואמינה מה-API של יוטיוב!
+                fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsPlaylistId}&maxResults=15&key=${GOOGLE_DRIVE_API_KEY}`)
                 .then(res => res.json())
                 .then(data => {
-                    if (data && data.items) setLatestVideos(data.items.slice(0, 15));
+                    if (data && data.items) {
+                        const formattedVideos = data.items.map(item => ({
+                            title: item.snippet.title,
+                            description: item.snippet.description,
+                            thumbnail: item.snippet.thumbnails?.maxres?.url || item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
+                            link: `https://www.youtube.com/watch?v=${item.snippet.resourceId.videoId}`,
+                            videoId: item.snippet.resourceId.videoId
+                        }));
+                        setLatestVideos(formattedVideos);
+                    }
                     setIsLoading(false);
-                }).catch(() => setIsLoading(false));
+                }).catch((err) => {
+                    console.error("YouTube API Error", err);
+                    setIsLoading(false);
+                });
             }, []);
 
             return (
-                <div className="min-h-screen pb-12">
+                <div className="min-h-screen flex flex-col bg-slate-50">
                     <style dangerouslySetInnerHTML={{ __html: `
                         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+                        @keyframes float {
+                            0% { transform: translateY(0px); }
+                            50% { transform: translateY(-12px); }
+                            100% { transform: translateY(0px); }
+                        }
                         .animate-fade-in { animation: fadeIn 0.3s ease forwards; }
+                        .animate-float { animation: float 4s ease-in-out infinite; }
                         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
                         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
                         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
@@ -305,8 +337,8 @@
                     {/* Header קפוא תמיד */}
                     <header className="fixed top-0 left-0 right-0 bg-white/80 backdrop-blur-lg shadow-sm z-[500] border-b border-slate-100 h-20 md:h-20 flex items-center">
                         <div className="max-w-7xl mx-auto w-full px-6 flex flex-row justify-between items-center">
-                            <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 bg-white rounded-xl shadow-md p-1 border border-slate-100 overflow-hidden">
+                            <div className="flex items-center gap-4 cursor-pointer group" onClick={() => { setCurrentView('home'); window.scrollTo(0,0); }}>
+                                <div className="w-12 h-12 bg-white rounded-xl shadow-md p-1 border border-slate-100 overflow-hidden group-hover:scale-105 transition-transform duration-300">
                                     <img src="./logo.png" alt="לוגו" className="w-full h-full object-contain" onError={e => e.target.style.display='none'} />
                                 </div>
                                 <div className="hidden sm:block">
@@ -314,148 +346,195 @@
                                     <p className="text-[10px] font-bold text-red-600 uppercase tracking-widest">מוזיקה חסידית לנשמה</p>
                                 </div>
                             </div>
-                            <nav className="flex gap-2 md:gap-6 text-xs md:text-sm font-black text-slate-600">
-                                <a href="#about" className="hover:text-red-600 transition-colors p-2">אודות</a>
-                                <a href="#latest" className="hover:text-red-600 transition-colors p-2">סרטונים</a>
-                                <a href="#drive" className="hover:text-red-600 transition-colors p-2">דרייב</a>
-                                <a href="#subscribe" className="bg-red-600 text-white px-4 py-2 rounded-xl hover:bg-red-700 transition-all shadow-lg shadow-red-200">הצטרפות</a>
+                            <nav className="flex gap-2 md:gap-6 text-xs md:text-sm font-black text-slate-600 items-center">
+                                {currentView === 'home' ? (
+                                    <>
+                                        <a href="#about" className="hover:text-red-600 hover:-translate-y-0.5 transition-all p-2">אודות</a>
+                                        <a href="#latest" className="hover:text-red-600 hover:-translate-y-0.5 transition-all p-2">הסטים</a>
+                                        <a href="#drive" className="hover:text-red-600 hover:-translate-y-0.5 transition-all p-2">דרייב</a>
+                                    </>
+                                ) : (
+                                    <button onClick={() => { setCurrentView('home'); window.scrollTo(0,0); }} className="hover:text-red-600 transition-colors p-2">חזור לאתר</button>
+                                )}
+                                <button onClick={() => { setCurrentView('subscribe'); window.scrollTo(0,0); }} className="bg-red-600 text-white px-4 py-2 rounded-xl hover:bg-red-700 hover:shadow-lg hover:shadow-red-200 hover:-translate-y-0.5 transition-all">הצטרפות</button>
                             </nav>
                         </div>
                     </header>
 
-                    {/* About Section */}
-                    <section id="about" className="py-20 max-w-5xl mx-auto px-6 text-center relative mt-8">
-                        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-64 bg-red-100/50 rounded-full blur-3xl -z-10"></div>
-                        
-                        <RevealOnScroll>
-                            <div className="w-48 h-48 mx-auto mb-10 bg-white rounded-full p-3 shadow-2xl border-4 border-slate-50 transform hover:scale-105 transition-transform duration-500 flex items-center justify-center">
-                                <img src="./logo.png" alt="פול ווליום" className="w-full h-full object-contain" onError={e => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }} />
-                                <Music size={64} className="text-slate-300 hidden" style={{ display: 'none' }} />
-                            </div>
-                            <h2 className="text-4xl md:text-6xl font-black text-slate-900 mb-6 tracking-tighter">פול ווליום - נותנים לקצב לדבר, וללב להרגיש</h2>
-                            <p className="text-lg md:text-xl text-slate-600 mb-12 font-medium leading-relaxed max-w-3xl mx-auto">ברוכים הבאים לערוץ שמביא לכם את כל הטוב המוזיקלי - סטים חמים, מחרוזות מקפיצות, ומוזיקה שמדליקה בפול ווליום.</p>
-                        </RevealOnScroll>
-                        
-                        <RevealOnScroll delay="200ms">
-                            <div className="bg-white rounded-[3rem] shadow-2xl p-8 md:p-14 text-right border border-slate-100 relative">
-                                <div className="absolute top-0 right-12 w-16 h-2 bg-red-600 rounded-b-full"></div>
-                                <h3 className="text-2xl md:text-3xl font-black mb-10 flex items-center gap-4 text-slate-800">
-                                    <div className="p-3 bg-red-50 text-red-600 rounded-2xl"><Music size={30}/></div>
-                                    מה מחכה לכם בערוץ?
-                                </h3>
-                                
-                                <div className="grid md:grid-cols-2 gap-8 mb-12 text-slate-700">
-                                    <div className="flex items-start gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white transition-all"><span className="text-3xl">🎶</span><span className="font-bold leading-tight pt-1 text-lg">שירים שקטים לרגעים של רוגע אחרי יום עמוס.</span></div>
-                                    <div className="flex items-start gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white transition-all"><span className="text-3xl">🕺</span><span className="font-bold leading-tight pt-1 text-lg">קצב מדבק שקשה להישאר אדישים אליו.</span></div>
-                                    <div className="flex items-start gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white transition-all"><span className="text-3xl">🎹</span><span className="font-bold leading-tight pt-1 text-lg">מנגינות שמלטפות את הנשמה.</span></div>
-                                    <div className="flex items-start gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white transition-all"><span className="text-3xl">🎉</span><span className="font-bold leading-tight pt-1 text-lg">מוזיקה לאווירת חג - כי כל חג צריך את הפסקול שלו.</span></div>
-                                    <div className="flex items-start gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white transition-all"><span className="text-3xl">🎶</span><span className="font-bold leading-tight pt-1 text-lg">שירים מרגשים שיעשו לכם צמרמורת גם בלי מזגן.</span></div>
-                                    <div className="flex items-start gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white transition-all"><span className="text-3xl">🕺</span><span className="font-bold leading-tight pt-1 text-lg">סטים מקפיצים למסיבות, לאימון - או סתם לכיף.</span></div>
-                                    <div className="flex items-start gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white transition-all"><span className="text-3xl">🕯️</span><span className="font-bold leading-tight pt-1 text-lg">רגעים של נשמה – מוזיקה שהיא גם תפילה.</span></div>
-                                    <div className="flex items-start gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white transition-all"><span className="text-3xl">🎛️</span><span className="font-bold leading-tight pt-1 text-lg">ועוד שלל הפתעות, שילובים מפתיעים ותבלינים מוזיקליים.</span></div>
-                                </div>
+                    <main className="flex-grow">
+                        {currentView === 'home' ? (
+                            <>
+                                {/* About Section */}
+                                <section id="about" className="py-20 max-w-5xl mx-auto px-6 text-center relative mt-8">
+                                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-64 bg-red-100/50 rounded-full blur-3xl -z-10"></div>
+                                    
+                                    <RevealOnScroll>
+                                        <div className="w-48 h-48 mx-auto mb-10 bg-white rounded-full p-3 shadow-2xl border-4 border-slate-50 flex items-center justify-center animate-float">
+                                            <img src="./logo.png" alt="פול ווליום" className="w-full h-full object-contain" onError={e => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }} />
+                                            <Music size={64} className="text-slate-300 hidden" style={{ display: 'none' }} />
+                                        </div>
+                                        <h2 className="text-4xl md:text-6xl font-black text-slate-900 mb-6 tracking-tighter">פול ווליום - נותנים לקצב לדבר, וללב להרגיש</h2>
+                                        <p className="text-lg md:text-xl text-slate-600 mb-12 font-medium leading-relaxed max-w-3xl mx-auto">ברוכים הבאים לערוץ שמביא לכם את כל הטוב המוזיקלי - סטים חמים, מחרוזות מקפיצות, ומוזיקה שמדליקה בפול ווליום.</p>
+                                    </RevealOnScroll>
+                                    
+                                    <RevealOnScroll delay="200ms">
+                                        <div className="bg-white rounded-[3rem] shadow-2xl p-8 md:p-14 text-right border border-slate-100 relative">
+                                            <div className="absolute top-0 right-12 w-16 h-2 bg-red-600 rounded-b-full"></div>
+                                            <h3 className="text-2xl md:text-3xl font-black mb-10 flex items-center gap-4 text-slate-800">
+                                                <div className="p-3 bg-red-50 text-red-600 rounded-2xl"><Music size={30}/></div>
+                                                מה מחכה לכם בערוץ?
+                                            </h3>
+                                            
+                                            <div className="grid md:grid-cols-2 gap-8 mb-12 text-slate-700">
+                                                <div className="flex items-start gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white hover:shadow-md hover:-translate-y-1 transition-all"><span className="text-3xl">🎶</span><span className="font-bold leading-tight pt-1 text-lg">שירים שקטים לרגעים של רוגע אחרי יום עמוס.</span></div>
+                                                <div className="flex items-start gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white hover:shadow-md hover:-translate-y-1 transition-all"><span className="text-3xl">🕺</span><span className="font-bold leading-tight pt-1 text-lg">קצב מדבק שקשה להישאר אדישים אליו.</span></div>
+                                                <div className="flex items-start gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white hover:shadow-md hover:-translate-y-1 transition-all"><span className="text-3xl">🎹</span><span className="font-bold leading-tight pt-1 text-lg">מנגינות שמלטפות את הנשמה.</span></div>
+                                                <div className="flex items-start gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white hover:shadow-md hover:-translate-y-1 transition-all"><span className="text-3xl">🎉</span><span className="font-bold leading-tight pt-1 text-lg">מוזיקה לאווירת חג - כי כל חג צריך את הפסקול שלו.</span></div>
+                                                <div className="flex items-start gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white hover:shadow-md hover:-translate-y-1 transition-all"><span className="text-3xl">🎶</span><span className="font-bold leading-tight pt-1 text-lg">שירים מרגשים שיעשו לכם צמרמורת גם בלי מזגן.</span></div>
+                                                <div className="flex items-start gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white hover:shadow-md hover:-translate-y-1 transition-all"><span className="text-3xl">🕺</span><span className="font-bold leading-tight pt-1 text-lg">סטים מקפיצים למסיבות, לאימון - או סתם לכיף.</span></div>
+                                                <div className="flex items-start gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white hover:shadow-md hover:-translate-y-1 transition-all"><span className="text-3xl">🕯️</span><span className="font-bold leading-tight pt-1 text-lg">רגעים של נשמה – מוזיקה שהיא גם תפילה.</span></div>
+                                                <div className="flex items-start gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-white hover:shadow-md hover:-translate-y-1 transition-all"><span className="text-3xl">🎛️</span><span className="font-bold leading-tight pt-1 text-lg">ועוד שלל הפתעות, שילובים מפתיעים ותבלינים מוזיקליים.</span></div>
+                                            </div>
 
-                                <div className="bg-red-50 p-6 rounded-3xl mb-12 border-2 border-red-100 flex flex-col md:flex-row items-center justify-center gap-4 text-center">
-                                    <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm">✅</div>
-                                    <p className="text-red-900 font-black text-xl italic">מחפשים גיוון אמיתי שלא נשמע כמו כל מה ששמעתם עד היום? הגעתם למקום הנכון!</p>
-                                </div>
+                                            <div className="bg-red-50 p-6 rounded-3xl mb-12 border-2 border-red-100 flex flex-col md:flex-row items-center justify-center gap-4 text-center hover:bg-red-100 transition-colors">
+                                                <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm">✅</div>
+                                                <p className="text-red-900 font-black text-xl italic">מחפשים גיוון אמיתי שלא נשמע כמו כל מה ששמעתם עד היום? הגעתם למקום הנכון!</p>
+                                            </div>
 
-                                <div className="flex flex-wrap justify-center gap-6 mt-14">
-                                    <a href="https://did.li/fullvolume-reservoir" target="_blank" className="bg-blue-600 text-white px-10 py-5 rounded-[1.5rem] font-black text-xl hover:bg-blue-700 transition-all shadow-xl shadow-blue-100 flex items-center gap-3"><FolderIcon size={28}/> כל הסטים בדרייב</a>
-                                    <a href="https://did.li/fv-support" target="_blank" className="bg-amber-500 text-white px-10 py-5 rounded-[1.5rem] font-black text-xl hover:bg-amber-600 transition-all shadow-xl shadow-amber-100 flex items-center gap-3">לתמיכה ב-PayPal</a>
-                                    <a href="https://did.li/fv-home-hngn" target="_blank" className="bg-purple-600 text-white px-10 py-5 rounded-[1.5rem] font-black text-xl hover:bg-purple-700 transition-all shadow-xl shadow-purple-100 flex items-center gap-3">היכל הנגינה</a>
-                                </div>
-                            </div>
-                        </RevealOnScroll>
-                    </section>
+                                            <div className="flex flex-wrap justify-center gap-6 mt-14">
+                                                <a href="https://did.li/fv-support" target="_blank" className="bg-amber-500 text-white px-10 py-5 rounded-[1.5rem] font-black text-xl hover:bg-amber-600 transition-all shadow-xl hover:shadow-amber-100 hover:-translate-y-1 flex items-center gap-3">לתמיכה ב-PayPal</a>
+                                                <a href="https://did.li/fv-home-hngn" target="_blank" className="bg-purple-600 text-white px-10 py-5 rounded-[1.5rem] font-black text-xl hover:bg-purple-700 transition-all shadow-xl hover:shadow-purple-100 hover:-translate-y-1 flex items-center gap-3">היכל הנגינה</a>
+                                            </div>
+                                        </div>
+                                    </RevealOnScroll>
+                                </section>
 
-                    {/* YouTube Section */}
-                    <section id="latest" className="py-24 bg-slate-100">
-                        <div className="max-w-7xl mx-auto px-6">
-                            <RevealOnScroll>
-                                <div className="flex items-center gap-5 mb-14">
-                                    <div className="p-4 bg-red-600 text-white rounded-2xl shadow-xl shadow-red-200">
-                                        <YoutubeIcon size={36}/>
-                                    </div>
-                                    <div>
-                                        <h2 className="text-4xl md:text-5xl font-black text-slate-900 tracking-tight leading-none">העלו לאחרונה בערוץ</h2>
-                                        <p className="text-slate-500 font-bold mt-2">הסטים והמחרוזות הכי חדשים שלנו</p>
-                                    </div>
-                                </div>
-                            </RevealOnScroll>
-                            
-                            {isLoading ? (
-                                <div className="flex flex-col items-center justify-center py-32 text-slate-300">
-                                    <div className="w-16 h-16 border-4 border-slate-300 border-t-red-600 rounded-full animate-spin mb-6"></div>
-                                    <p className="font-bold text-xl">מושך סרטונים מיוטיוב...</p>
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
-                                    {latestVideos.map((v, i) => (
-                                        <RevealOnScroll key={i} delay={`${(i % 3) * 150}ms`}>
-                                            <VideoCard video={v} />
+                                {/* YouTube Section */}
+                                <section id="latest" className="py-24 bg-slate-100">
+                                    <div className="max-w-7xl mx-auto px-6">
+                                        <RevealOnScroll>
+                                            <div className="flex items-center gap-5 mb-14">
+                                                <div className="p-4 bg-red-600 text-white rounded-2xl shadow-xl shadow-red-200 animate-float">
+                                                    <YoutubeIcon size={36}/>
+                                                </div>
+                                                <div>
+                                                    <h2 className="text-4xl md:text-5xl font-black text-slate-900 tracking-tight leading-none">העלו לאחרונה בערוץ</h2>
+                                                    <p className="text-slate-500 font-bold mt-2">הסטים והמחרוזות הכי חדשים שלנו</p>
+                                                </div>
+                                            </div>
                                         </RevealOnScroll>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    </section>
-
-                    {/* Drive Section */}
-                    <section id="drive" className="py-24 bg-slate-900">
-                        <div className="max-w-7xl mx-auto px-6 text-white">
-                            <RevealOnScroll>
-                                <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-16">
-                                    <div>
-                                        <h2 className="text-4xl md:text-5xl font-black tracking-tight leading-none">מאגר הדרייב המלא</h2>
-                                        <p className="text-blue-300 font-bold mt-3 text-lg italic">סייר קבצים מתקדם להאזנה והורדה ישירה</p>
+                                        
+                                        {isLoading ? (
+                                            <div className="flex flex-col items-center justify-center py-32 text-slate-300">
+                                                <div className="w-16 h-16 border-4 border-slate-300 border-t-red-600 rounded-full animate-spin mb-6"></div>
+                                                <p className="font-bold text-xl">מושך סרטונים מיוטיוב...</p>
+                                            </div>
+                                        ) : (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
+                                                {latestVideos.map((v, i) => (
+                                                    <RevealOnScroll key={i} delay={`${(i % 3) * 150}ms`}>
+                                                        <VideoCard video={v} />
+                                                    </RevealOnScroll>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
-                                    <a href="https://drive.google.com/drive/folders/12eZNreOj_lxtMZMy1F6NAP5ZmzbiXOfK" target="_blank" className="bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold px-8 py-4 rounded-2xl transition-all">פתח בדרייב המקורי</a>
-                                </div>
-                            </RevealOnScroll>
-                            <RevealOnScroll delay="200ms">
-                                <DriveExplorer />
-                            </RevealOnScroll>
-                        </div>
-                    </section>
+                                </section>
 
-                    {/* Subscribe Section */}
-                    <section id="subscribe" className="py-32 bg-red-600 text-white text-center relative overflow-hidden">
-                        <div className="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded-full blur-[100px] -mr-48 -mt-48"></div>
-                        <div className="max-w-4xl mx-auto px-6 relative z-10">
-                            <RevealOnScroll>
-                                <div className="inline-block p-6 bg-white/10 rounded-full mb-10 border border-white/20 shadow-2xl">
-                                    <Mail size={60} />
+                                {/* Drive Section */}
+                                <section id="drive" className="py-24 bg-slate-900">
+                                    <div className="max-w-7xl mx-auto px-6 text-white">
+                                        <RevealOnScroll>
+                                            <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-16">
+                                                <div>
+                                                    <h2 className="text-4xl md:text-5xl font-black tracking-tight leading-none">מאגר הדרייב המלא</h2>
+                                                    <p className="text-blue-300 font-bold mt-3 text-lg italic">סייר קבצים מתקדם להאזנה והורדה ישירה</p>
+                                                </div>
+                                                <a href="https://drive.google.com/drive/folders/12eZNreOj_lxtMZMy1F6NAP5ZmzbiXOfK" target="_blank" className="bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold px-8 py-4 rounded-2xl transition-all hover:-translate-y-1">פתח בדרייב המקורי</a>
+                                            </div>
+                                        </RevealOnScroll>
+                                        <RevealOnScroll delay="200ms">
+                                            <DriveExplorer />
+                                        </RevealOnScroll>
+                                    </div>
+                                </section>
+                                
+                                {/* CTA למעבר לדף הרשמה בתחתית דף הבית */}
+                                <section className="py-24 bg-slate-50 text-center">
+                                    <div className="max-w-4xl mx-auto px-6">
+                                        <RevealOnScroll>
+                                            <h2 className="text-3xl md:text-4xl font-black text-slate-900 mb-6">רוצים לקבל את הסטים החדשים לפני כולם?</h2>
+                                            <button 
+                                                onClick={() => { setCurrentView('subscribe'); window.scrollTo(0,0); }} 
+                                                className="bg-red-600 text-white px-10 py-5 rounded-[1.5rem] font-black text-xl hover:bg-red-700 transition-all shadow-xl hover:-translate-y-1 mx-auto flex items-center gap-3 group"
+                                            >
+                                                <Mail size={24} className="group-hover:scale-110 transition-transform" /> מעבר לדף ההרשמה לניוזלטר
+                                            </button>
+                                        </RevealOnScroll>
+                                    </div>
+                                </section>
+                            </>
+                        ) : (
+                            /* Subscribe Page (דף נפרד) */
+                            <section id="subscribe-page" className="py-24 mt-12 bg-red-600 text-white text-center relative min-h-screen flex flex-col justify-center overflow-hidden">
+                                <div className="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded-full blur-[100px] -mr-48 -mt-48 pointer-events-none"></div>
+                                <div className="absolute bottom-0 left-0 w-96 h-96 bg-black/10 rounded-full blur-[100px] -ml-48 -mb-48 pointer-events-none"></div>
+                                
+                                <div className="max-w-4xl mx-auto px-6 relative z-10 w-full">
+                                    <RevealOnScroll>
+                                        <button onClick={() => { setCurrentView('home'); window.scrollTo(0,0); }} className="mb-12 inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 px-6 py-3 rounded-full font-bold transition-all border border-white/20 hover:-translate-x-2">
+                                            <ArrowRight size={20} /> חזור לאתר
+                                        </button>
+                                        
+                                        <div className="inline-block p-6 bg-white/10 rounded-full mb-10 border border-white/20 shadow-2xl animate-float">
+                                            <Mail size={60} />
+                                        </div>
+                                        <h2 className="text-5xl md:text-7xl font-black mb-8 tracking-tighter">הישארו מעודכנים!</h2>
+                                        <p className="text-xl md:text-2xl text-red-100 mb-14 font-medium max-w-2xl mx-auto italic">אל תפספסו אף סט! הצטרפו עכשיו לרשימת התפוצה הגדולה ביותר של הסטים החסידיים.</p>
+                                    </RevealOnScroll>
+                                    
+                                    <RevealOnScroll delay="200ms">
+                                        <div className="bg-white rounded-[4rem] p-8 md:p-12 shadow-[0_35px_60px_-15px_rgba(0,0,0,0.3)] w-full">
+                                            <iframe 
+                                                src="https://docs.google.com/forms/d/e/1FAIpQLSc4KBJNS5QwFgIWeeweUFe7zdaspHJXUF0pFzJlkcRS_v9S4g/viewform?embedded=true" 
+                                                className="w-full min-h-[600px] border-0" 
+                                                frameBorder="0" 
+                                                marginHeight="0" 
+                                                marginWidth="0">
+                                                בטעינה…
+                                            </iframe>
+                                            <div className="mt-8 text-center pt-8 border-t border-slate-100">
+                                                <p className="text-slate-500 font-bold text-sm mb-4">מעדיפים להירשם דרך המייל?</p>
+                                                <a href="mailto:fullvolume01+subscribe@googlegroups.com?subject=הצטרפות אוטומטית&body=אני מעוניין להצטרף" 
+                                                   className="inline-flex items-center gap-2 bg-red-100 text-red-600 font-bold text-lg py-3 px-8 rounded-xl hover:bg-red-200 transition-all shadow-sm hover:shadow-md">
+                                                    <Mail size={24} /> לחץ כאן להצטרפות במייל
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </RevealOnScroll>
                                 </div>
-                                <h2 className="text-5xl md:text-7xl font-black mb-8 tracking-tighter">הישארו מעודכנים!</h2>
-                                <p className="text-xl md:text-2xl text-red-100 mb-14 font-medium max-w-2xl mx-auto italic">אל תפספסו אף סט! הצטרפו עכשיו לרשימת התפוצה הגדולה ביותר של הסטים החסידיים.</p>
-                            </RevealOnScroll>
-                            
-                            <RevealOnScroll delay="200ms">
-                                <div className="bg-white rounded-[4rem] p-12 md:p-20 shadow-[0_35px_60px_-15px_rgba(0,0,0,0.3)]">
-                                    <a href="mailto:fullvolume01+subscribe@googlegroups.com?subject=הצטרפות אוטומטית&body=אני מעוניין להצטרף" 
-                                       className="inline-flex items-center gap-4 bg-red-600 text-white font-black text-2xl py-6 px-14 rounded-[2rem] hover:bg-red-700 transition-all shadow-2xl shadow-red-200 hover:-translate-y-2 active:scale-95 group">
-                                        <Mail size={32} className="group-hover:scale-110 transition-transform"/> לחץ כאן להצטרפות במייל
-                                    </a>
-                                    <p className="mt-8 text-slate-400 font-bold text-sm">ההצטרפות היא חינם לגמרי.</p>
-                                </div>
-                            </RevealOnScroll>
-                        </div>
-                    </section>
+                            </section>
+                        )}
+                    </main>
 
                     {/* Footer */}
-                    <footer className="bg-slate-950 text-slate-500 py-16 text-center border-t border-slate-900">
+                    <footer className="bg-slate-950 text-slate-500 pt-16 pb-6 text-center border-t border-slate-900 mt-auto relative">
                         <div className="max-w-4xl mx-auto px-6">
-                            <div className="w-20 h-20 mx-auto mb-8 grayscale opacity-40 hover:grayscale-0 hover:opacity-100 transition-all duration-500 cursor-pointer">
+                            <div className="w-20 h-20 mx-auto mb-8 grayscale opacity-40 hover:grayscale-0 hover:opacity-100 transition-all duration-500 cursor-pointer" onClick={() => { setCurrentView('home'); window.scrollTo(0,0); }}>
                                 <img src="./logo.png" alt="לוגו" className="w-full h-full object-contain" onError={e => e.target.style.display='none'} />
                             </div>
-                            <p className="mb-4 font-black text-lg tracking-wide">© 2026 פול ווליום. נותנים לקצב לדבר, וללב להרגיש.</p>
-                            <p className="text-md font-bold mb-10">
-                                האתר נבנה על ידי <a href="https://mytovmail.github.io/Good-heart/" target="_blank" className="text-red-500 hover:text-red-400 transition-colors underline decoration-dotted underline-offset-8">לב טוב</a>
-                            </p>
-                            <div className="flex flex-wrap justify-center gap-10 text-sm font-black uppercase tracking-widest">
+                            
+                            <p className="mb-8 font-black text-lg tracking-wide">© 2026 פול ווליום. נותנים לקצב לדבר, וללב להרגיש.</p>
+                            
+                            <div className="flex flex-wrap justify-center gap-10 text-sm font-black uppercase tracking-widest mb-16">
                                 <a href="mailto:fullvolume01@gmail.com" className="hover:text-white transition-colors">פרסום ושת"פ</a>
-                                <a href="mailto:fullvolume01+unsubscribe@googlegroups.com" className="hover:text-red-400 transition-colors">הסרה מהרשימה</a>
+                            </div>
+
+                            {/* הקרדיט המוקטן בתחתית */}
+                            <div className="border-t border-slate-800/50 pt-6 mt-8">
+                                <p className="text-xs text-slate-600 font-medium">
+                                    האתר נבנה על ידי <a href="https://mytovmail.github.io/Good-heart/" target="_blank" className="hover:text-slate-400 transition-colors underline decoration-dotted underline-offset-4">לב טוב</a>
+                                </p>
                             </div>
                         </div>
                     </footer>
